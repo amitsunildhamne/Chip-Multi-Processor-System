@@ -1,0 +1,115 @@
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+#include "cache.h"
+
+////////////////////////////////////////////////////////////////////
+// ------------- TRY NOT TO MODIFY THE PRINT STATS FUNCTION -----------
+////////////////////////////////////////////////////////////////////
+
+void    cache_print_stats    (Cache *c, char *header){
+  double read_mr =0;
+  double write_mr =0;
+
+  if(c->stat_read_access){
+    read_mr=(double)(c->stat_read_miss)/(double)(c->stat_read_access);
+  }
+
+  if(c->stat_write_access){
+    write_mr=(double)(c->stat_write_miss)/(double)(c->stat_write_access);
+  }
+
+  printf("\n%s_READ_ACCESS    \t\t : %10llu", header, c->stat_read_access);
+  printf("\n%s_WRITE_ACCESS   \t\t : %10llu", header, c->stat_write_access);
+  printf("\n%s_READ_MISS      \t\t : %10llu", header, c->stat_read_miss);
+  printf("\n%s_WRITE_MISS     \t\t : %10llu", header, c->stat_write_miss);
+  printf("\n%s_READ_MISS_PERC  \t\t : %10.3f", header, 100*read_mr);
+  printf("\n%s_WRITE_MISS_PERC \t\t : %10.3f", header, 100*write_mr);
+  printf("\n%s_DIRTY_EVICTS   \t\t : %10llu", header, c->stat_dirty_evicts);
+
+  printf("\n");
+}
+
+
+Cache* cache_new(uns64 size, uns64 assocs, uns64 linesize, uns64 repl_policy)
+{ uns32 num_sets = size/(linesize*assocs);
+  Cache* temp = (Cache*) calloc(1,sizeof(Cache));
+  temp->cache_set = (Cache_Set*) calloc(num_sets,sizeof(Cache_Set));
+  temp->cache_set->cache_line = (Cache_Line*) calloc(assocs, sizeof(Cache_Line));
+  temp->num_sets = num_sets;
+  temp->num_ways = assocs;
+  temp->rep_policy = repl_policy;
+  printf("New cache");
+  return temp; 
+}
+
+
+Flag cache_access(Cache *c, Addr lineaddr, uns is_write, uns core_id)		//have to do core_id implement
+{ int k = log2(c->num_sets);
+  uns64 t = (lineaddr)>>(k);
+  uns64 set_index = lineaddr%(2^k);
+  printf("set index \t : %10llu", set_index); 
+  //for(uns32 set = 0; set< c->num_sets; set++)			//try accessing using set_index 
+    for(uns64 ways = 0;ways< c->num_ways;ways++)
+       {if((c->cache_set[set_index].cache_line[ways].tag == t) && c->cache_set[set_index].cache_line[ways].valid==true)
+         {c->stat_read_access++;
+	  if(is_write == true)
+           {c->cache_set[set_index].cache_line[ways].dirty=true;
+            c->stat_write_access++;
+           }
+          return HIT;
+         }
+       }  
+  if(is_write == true)
+   c->stat_write_miss++;
+  else c->stat_read_miss++;
+  printf("cahce access");
+  return MISS;  
+}
+
+void cache_install(Cache *c, Addr lineaddr, uns is_write, uns core_id)		//core_id implement
+{ int k = log2(c->num_sets); 
+  uns64 set_index = lineaddr%(2^k);
+  uns temp = cache_find_victim(c,set_index,core_id);
+  c->last_evicted_line = c->cache_set[set_index].cache_line[temp];
+  //now installing new line
+  //int k = log2(c->num_sets);
+  uns64 t = (lineaddr)>>(k);
+  c->cache_set[set_index].cache_line[temp].tag = t;
+  c->cache_set[set_index].cache_line[temp].valid = true; 
+  if(is_write == true)
+    c->cache_set[set_index].cache_line[temp].dirty=true;   		//set core_id for new line
+  else  c->cache_set[set_index].cache_line[temp].dirty = false; 
+   c->cache_set[set_index].cache_line[temp].last_access_time = cycle; 
+  printf("cache install");
+}
+
+uns cache_find_victim(Cache *c, uns set_index, uns core_id)			//core_id implement
+{ printf("victim finding");
+  if(c->rep_policy == 0) //LRU
+   { uns temp;
+     uns min;
+     for(uns64 i =0; i< c->num_ways ; i++)
+       { if(i==0)
+           {temp = c->cache_set[set_index].cache_line[i].last_access_time; 
+            min = i;
+           }
+
+         if(c->cache_set[set_index].cache_line[i].last_access_time < temp)
+     	   {temp = c->cache_set[set_index].cache_line[i].last_access_time; 
+            min = i;
+           }
+       }
+     return min;
+   }
+
+ else if(c->rep_policy == 1) //Random
+  { uns min;
+    min = rand()%(c->num_ways);
+    return min;
+  }
+ return 0;
+}
+

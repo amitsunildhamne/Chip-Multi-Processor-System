@@ -1,0 +1,107 @@
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "dram.h"
+
+#include<math.h>
+
+uns64 PRE=45;
+uns64 ACT=45;
+uns64 CAS=45;
+uns64 BUS=10;
+
+extern MODE SIM_MODE;
+
+extern Addr full_addr;
+
+////////////////////////////////////////////////////////////////////
+// ------------- TRY NOT TO MODIFY THE PRINT STATS FUNCTION -------
+////////////////////////////////////////////////////////////////////
+
+void    dram_print_stats(DRAM *dram){
+  double rddelay_avg=0;
+  double wrdelay_avg=0;
+  char header[256];
+  sprintf(header, "DRAM");
+  
+  if(dram->stat_read_access){
+    rddelay_avg=(double)(dram->stat_read_delay)/(double)(dram->stat_read_access);
+  }
+
+  if(dram->stat_write_access){
+    wrdelay_avg=(double)(dram->stat_write_delay)/(double)(dram->stat_write_access);
+  }
+
+  printf("\n%s_READ_ACCESS\t\t : %10llu", header, dram->stat_read_access);
+  printf("\n%s_WRITE_ACCESS\t\t : %10llu", header, dram->stat_write_access);
+  printf("\n%s_READ_DELAY_AVG\t\t : %10.3f", header, rddelay_avg);
+  printf("\n%s_WRITE_DELAY_AVG\t\t : %10.3f", header, wrdelay_avg);
+
+
+}
+
+DRAM* dram_new()
+{ DRAM* temp = (DRAM*) calloc(1,sizeof(DRAM));
+  for(uns i=0; i<256;i++)
+   {temp->row_buffer[i].row_id = i;}
+  return temp;
+}
+
+uns64 dram_access(DRAM *dram,Addr lineaddr, Flag is_dram_write)
+{ uns64 delay;
+  if(SIM_MODE == SIM_MODE_B)
+  {delay = 100;
+   if(is_dram_write == true)
+    {dram->stat_write_access++;
+     dram->stat_write_delay = dram->stat_write_delay + 100;
+    }
+   else 
+   {dram->stat_read_access++;
+    dram->stat_read_delay = dram->stat_read_delay + 100;
+   }
+  return delay;
+  }
+  
+  if((SIM_MODE==SIM_MODE_C)||(SIM_MODE==SIM_MODE_D)||(SIM_MODE==SIM_MODE_E))
+  { delay = dram_access_mode_CDE(dram,lineaddr,is_dram_write);
+    return delay;
+  }
+}
+
+uns64 dram_access_mode_CDE(DRAM *dram,Addr lineaddr, Flag is_dram_write)
+{ uns32 offset = full_addr%((uns)pow(2,10));
+  Addr tempo = full_addr;
+  uns temp = tempo / (pow(2,10));
+  uns32 bank_index = temp % ((uns)pow(2,4));
+  uns64 row_id = temp/(pow(2,4));
+  uns64 delay;
+  if(is_dram_write)
+   dram-> stat_write_access++;
+  else dram->stat_read_access++;
+  if(DRAM_PAGE_POLICY ==0) //open page policy
+  { if(dram->row_buffer[bank_index].row_id==row_id)  				//valid????
+     { delay = CAS + BUS;
+       if(is_dram_write)
+         dram->stat_write_delay = dram->stat_write_delay + delay;
+       else dram->stat_read_delay = dram->stat_read_delay + delay;
+     }
+    else 
+    { delay = PRE + ACT + CAS + BUS;	
+      dram->row_buffer[bank_index].row_id=row_id;
+      if(is_dram_write)
+        dram->stat_write_delay = dram->stat_write_delay + delay;
+      else dram->stat_read_delay = dram->stat_read_delay + delay;
+    }
+  }
+   if(DRAM_PAGE_POLICY ==1) //closed page policy
+  {  delay = ACT + CAS + BUS;							//valid???
+     if(is_dram_write)
+        dram->stat_write_delay = dram->stat_write_delay + delay;
+     else dram->stat_read_delay = dram->stat_read_delay + delay;
+  }
+ return delay;
+}
+
+
+
